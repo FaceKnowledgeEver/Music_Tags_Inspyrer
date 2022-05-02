@@ -1,0 +1,5045 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "bmNZ3dXa4RsU"
+   },
+   "source": [
+    "# Modelisation - Second Phase"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "L2HG09NJ4Rsl"
+   },
+   "source": [
+    "In this notebook, we're going to try different classification methods in order to select the one to be used at the end.\n",
+    "Then we'll save the best model and we'll submit a new song to it to see how this song is classified."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "z4CeKmKt4Rsp",
+    "outputId": "d72ce070-4af9-43ad-c5a6-7ba6b17d0725"
+   },
+   "outputs": [],
+   "source": [
+    "## Importing data\n",
+    "\n",
+    "# Import libraries\n",
+    "\n",
+    "import matplotlib.pyplot as plt\n",
+    "import seaborn as sns\n",
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "import os\n",
+    "import statsmodels.api\n",
+    "from  sklearn.model_selection  import train_test_split\n",
+    "from sklearn import preprocessing\n",
+    "from sklearn.preprocessing import StandardScaler\n",
+    "from sklearn.metrics import classification_report\n",
+    "%matplotlib inline\n",
+    "\n",
+    "sns.set()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Extraction of a dataset with more features"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The measures used for the features are extracted 12 times during the 30 seconds of each sound file. Previously these 12 measures were summarized by their mean only.\n",
+    "We want to see if a supplement of information provided by some additional features such as the standard deviation and median of\n",
+    "the variables could enhance the accuracy of our predictions. "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import librosa\n",
+    "import csv\n",
+    "# Preprocessing\n",
+    "from sklearn.model_selection import train_test_split\n",
+    "from sklearn.preprocessing import LabelEncoder, StandardScaler\n",
+    "\n",
+    "# generating a dataset\n",
+    "header = 'filename tempo chroma_stft_mean chroma_stft_std chroma_stft_median rmse_mean rmse_std rmse_median \\\n",
+    "          spectral_centroid_mean spectral_centroid_std spectral_centroid_median spectral_bandwidth_mean \\\n",
+    "          spectral_bandwidth_std spectral_bandwidth_median rolloff_mean rolloff_std rolloff_median zero_crossing_rate_mean \\\n",
+    "          zero_crossing_rate_std zero_crossing_rate_median'\n",
+    "for i in range(1, 21):\n",
+    "    header += f' mfcc{i}'\n",
+    "header += ' label'\n",
+    "header = header.split()\n",
+    "\n",
+    "file = open('dataB.csv', 'w', newline='')\n",
+    "with file:\n",
+    "    writer = csv.writer(file)\n",
+    "    writer.writerow(header)\n",
+    "genres = 'blues classical country disco hiphop jazz metal pop reggae rock'.split()\n",
+    "for g in genres:\n",
+    "    for filename in os.listdir(f'./genres/{g}'):\n",
+    "        songname = f'./genres/{g}/{filename}'\n",
+    "        y, sr = librosa.load(songname, mono=True, duration=30)\n",
+    "        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)\n",
+    "        chroma_stft = librosa.feature.chroma_stft(y=y, sr=sr)\n",
+    "        rmse = librosa.feature.rms(y=y)\n",
+    "        spec_cent = librosa.feature.spectral_centroid(y=y, sr=sr)\n",
+    "        spec_bw = librosa.feature.spectral_bandwidth(y=y, sr=sr)\n",
+    "        rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)\n",
+    "        zcr = librosa.feature.zero_crossing_rate(y)\n",
+    "        mfcc = librosa.feature.mfcc(y=y, sr=sr)\n",
+    "        to_append = f'{filename} {tempo} {np.mean(chroma_stft)} {np.std(chroma_stft)} {np.median(chroma_stft)} \\\n",
+    "                      {np.mean(rmse)} {np.std(rmse)} {np.median(rmse)} {np.mean(spec_cent)} {np.std(spec_cent)} \\\n",
+    "                      {np.median(spec_cent)} {np.mean(spec_bw)} {np.std(spec_bw)} {np.median(spec_bw)} \\\n",
+    "                      {np.mean(rolloff)} {np.std(rolloff)} {np.median(rolloff)} {np.mean(zcr)} {np.std(zcr)} \\\n",
+    "                      {np.median(zcr)}'    \n",
+    "        for e in mfcc:\n",
+    "            to_append += f' {np.mean(e)}'\n",
+    "        to_append += f' {g}'\n",
+    "        file = open('dataB.csv', 'a', newline='')\n",
+    "        with file:\n",
+    "            writer = csv.writer(file)\n",
+    "            writer.writerow(to_append.split())\n",
+    "            "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {
+    "id": "BELf9Jcy4Rsr"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>filename</th>\n",
+       "      <th>tempo</th>\n",
+       "      <th>chroma_stft_mean</th>\n",
+       "      <th>chroma_stft_std</th>\n",
+       "      <th>chroma_stft_median</th>\n",
+       "      <th>rmse_mean</th>\n",
+       "      <th>rmse_std</th>\n",
+       "      <th>rmse_median</th>\n",
+       "      <th>spectral_centroid_mean</th>\n",
+       "      <th>spectral_centroid_std</th>\n",
+       "      <th>...</th>\n",
+       "      <th>mfcc12</th>\n",
+       "      <th>mfcc13</th>\n",
+       "      <th>mfcc14</th>\n",
+       "      <th>mfcc15</th>\n",
+       "      <th>mfcc16</th>\n",
+       "      <th>mfcc17</th>\n",
+       "      <th>mfcc18</th>\n",
+       "      <th>mfcc19</th>\n",
+       "      <th>mfcc20</th>\n",
+       "      <th>label</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>blues.00000.wav</td>\n",
+       "      <td>123.046875</td>\n",
+       "      <td>0.349943</td>\n",
+       "      <td>0.297926</td>\n",
+       "      <td>0.254129</td>\n",
+       "      <td>0.130225</td>\n",
+       "      <td>0.053187</td>\n",
+       "      <td>0.126158</td>\n",
+       "      <td>1784.420446</td>\n",
+       "      <td>360.263361</td>\n",
+       "      <td>...</td>\n",
+       "      <td>8.810669</td>\n",
+       "      <td>-3.667368</td>\n",
+       "      <td>5.751691</td>\n",
+       "      <td>-5.162763</td>\n",
+       "      <td>0.750948</td>\n",
+       "      <td>-1.691938</td>\n",
+       "      <td>-0.409953</td>\n",
+       "      <td>-2.300209</td>\n",
+       "      <td>1.219929</td>\n",
+       "      <td>blues</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>blues.00001.wav</td>\n",
+       "      <td>67.999589</td>\n",
+       "      <td>0.340983</td>\n",
+       "      <td>0.308190</td>\n",
+       "      <td>0.232455</td>\n",
+       "      <td>0.095918</td>\n",
+       "      <td>0.048718</td>\n",
+       "      <td>0.093785</td>\n",
+       "      <td>1529.835316</td>\n",
+       "      <td>613.175361</td>\n",
+       "      <td>...</td>\n",
+       "      <td>5.376803</td>\n",
+       "      <td>-2.239120</td>\n",
+       "      <td>4.216963</td>\n",
+       "      <td>-6.012273</td>\n",
+       "      <td>0.936109</td>\n",
+       "      <td>-0.716537</td>\n",
+       "      <td>0.293876</td>\n",
+       "      <td>-0.287431</td>\n",
+       "      <td>0.531573</td>\n",
+       "      <td>blues</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>blues.00002.wav</td>\n",
+       "      <td>161.499023</td>\n",
+       "      <td>0.363603</td>\n",
+       "      <td>0.292039</td>\n",
+       "      <td>0.275578</td>\n",
+       "      <td>0.175573</td>\n",
+       "      <td>0.052423</td>\n",
+       "      <td>0.174122</td>\n",
+       "      <td>1552.481958</td>\n",
+       "      <td>395.634070</td>\n",
+       "      <td>...</td>\n",
+       "      <td>5.789265</td>\n",
+       "      <td>-8.905224</td>\n",
+       "      <td>-1.083720</td>\n",
+       "      <td>-9.218359</td>\n",
+       "      <td>2.455806</td>\n",
+       "      <td>-7.726901</td>\n",
+       "      <td>-1.815723</td>\n",
+       "      <td>-3.433434</td>\n",
+       "      <td>-2.226821</td>\n",
+       "      <td>blues</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>blues.00003.wav</td>\n",
+       "      <td>63.024009</td>\n",
+       "      <td>0.404779</td>\n",
+       "      <td>0.306609</td>\n",
+       "      <td>0.319878</td>\n",
+       "      <td>0.141191</td>\n",
+       "      <td>0.079617</td>\n",
+       "      <td>0.128953</td>\n",
+       "      <td>1070.119953</td>\n",
+       "      <td>429.532791</td>\n",
+       "      <td>...</td>\n",
+       "      <td>6.087677</td>\n",
+       "      <td>-2.476421</td>\n",
+       "      <td>-1.073890</td>\n",
+       "      <td>-2.874778</td>\n",
+       "      <td>0.780977</td>\n",
+       "      <td>-3.316932</td>\n",
+       "      <td>0.637982</td>\n",
+       "      <td>-0.619690</td>\n",
+       "      <td>-3.408233</td>\n",
+       "      <td>blues</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>blues.00004.wav</td>\n",
+       "      <td>135.999178</td>\n",
+       "      <td>0.308590</td>\n",
+       "      <td>0.296395</td>\n",
+       "      <td>0.201488</td>\n",
+       "      <td>0.091563</td>\n",
+       "      <td>0.047996</td>\n",
+       "      <td>0.082990</td>\n",
+       "      <td>1835.494603</td>\n",
+       "      <td>585.961468</td>\n",
+       "      <td>...</td>\n",
+       "      <td>-2.806384</td>\n",
+       "      <td>-6.934123</td>\n",
+       "      <td>-7.558618</td>\n",
+       "      <td>-9.173553</td>\n",
+       "      <td>-4.512165</td>\n",
+       "      <td>-5.453538</td>\n",
+       "      <td>-0.924161</td>\n",
+       "      <td>-4.409333</td>\n",
+       "      <td>-11.703781</td>\n",
+       "      <td>blues</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "<p>5 rows × 41 columns</p>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "          filename       tempo  chroma_stft_mean  chroma_stft_std  \\\n",
+       "0  blues.00000.wav  123.046875          0.349943         0.297926   \n",
+       "1  blues.00001.wav   67.999589          0.340983         0.308190   \n",
+       "2  blues.00002.wav  161.499023          0.363603         0.292039   \n",
+       "3  blues.00003.wav   63.024009          0.404779         0.306609   \n",
+       "4  blues.00004.wav  135.999178          0.308590         0.296395   \n",
+       "\n",
+       "   chroma_stft_median  rmse_mean  rmse_std  rmse_median  \\\n",
+       "0            0.254129   0.130225  0.053187     0.126158   \n",
+       "1            0.232455   0.095918  0.048718     0.093785   \n",
+       "2            0.275578   0.175573  0.052423     0.174122   \n",
+       "3            0.319878   0.141191  0.079617     0.128953   \n",
+       "4            0.201488   0.091563  0.047996     0.082990   \n",
+       "\n",
+       "   spectral_centroid_mean  spectral_centroid_std  ...    mfcc12    mfcc13  \\\n",
+       "0             1784.420446             360.263361  ...  8.810669 -3.667368   \n",
+       "1             1529.835316             613.175361  ...  5.376803 -2.239120   \n",
+       "2             1552.481958             395.634070  ...  5.789265 -8.905224   \n",
+       "3             1070.119953             429.532791  ...  6.087677 -2.476421   \n",
+       "4             1835.494603             585.961468  ... -2.806384 -6.934123   \n",
+       "\n",
+       "     mfcc14    mfcc15    mfcc16    mfcc17    mfcc18    mfcc19     mfcc20  \\\n",
+       "0  5.751691 -5.162763  0.750948 -1.691938 -0.409953 -2.300209   1.219929   \n",
+       "1  4.216963 -6.012273  0.936109 -0.716537  0.293876 -0.287431   0.531573   \n",
+       "2 -1.083720 -9.218359  2.455806 -7.726901 -1.815723 -3.433434  -2.226821   \n",
+       "3 -1.073890 -2.874778  0.780977 -3.316932  0.637982 -0.619690  -3.408233   \n",
+       "4 -7.558618 -9.173553 -4.512165 -5.453538 -0.924161 -4.409333 -11.703781   \n",
+       "\n",
+       "   label  \n",
+       "0  blues  \n",
+       "1  blues  \n",
+       "2  blues  \n",
+       "3  blues  \n",
+       "4  blues  \n",
+       "\n",
+       "[5 rows x 41 columns]"
+      ]
+     },
+     "execution_count": 3,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# Reading data\n",
+    "music_df = pd.read_csv(\"dataB.csv\")\n",
+    "music_df.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "58_NZ1rF4Rsv",
+    "outputId": "bd7c7905-76d1-4006-e7d7-2af1786f1a43"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "The filename column is not useful for the machine learning algorithm. So we decide to remove it.\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Removing the filename column\n",
+    "print(\"The filename column is not useful for the machine learning algorithm. So we decide to remove it.\")\n",
+    "music_df = music_df.drop([\"filename\"], axis = 1)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {
+    "id": "hkud3q1F4Rsx"
+   },
+   "outputs": [],
+   "source": [
+    "target = music_df.label\n",
+    "data = music_df.drop('label',axis=1)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "rZcOzT7H4Rsz"
+   },
+   "source": [
+    "## Preparing the features\n",
+    "\n",
+    "### Suppressing the highly correlated features"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {
+    "id": "G08yNCFL4Rs2"
+   },
+   "outputs": [],
+   "source": [
+    "# Function to remove highly correlated columns\n",
+    "\n",
+    "def correlation(dataset, threshold):\n",
+    "    col_corr = set() # Set of all the names of deleted columns\n",
+    "    corr_matrix = dataset.corr()\n",
+    "    for i in range(len(corr_matrix.columns)):\n",
+    "        for j in range(i):\n",
+    "            if (corr_matrix.iloc[i, j] >= threshold) and (corr_matrix.columns[j] not in col_corr):\n",
+    "                colname = corr_matrix.columns[i] # getting the name of column\n",
+    "                col_corr.add(colname)\n",
+    "                if colname in dataset.columns:\n",
+    "                    del dataset[colname] # deleting the column from the dataset"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "55kiU9yZ4Rs3",
+    "outputId": "8d17969e-431f-400c-94cb-71ac8f9d696a"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Index(['tempo', 'chroma_stft_mean', 'chroma_stft_std', 'rmse_mean', 'rmse_std',\n",
+      "       'spectral_centroid_mean', 'spectral_centroid_std',\n",
+      "       'spectral_bandwidth_std', 'zero_crossing_rate_std',\n",
+      "       'zero_crossing_rate_median', 'mfcc1', 'mfcc2', 'mfcc3', 'mfcc4',\n",
+      "       'mfcc5', 'mfcc6', 'mfcc7', 'mfcc8', 'mfcc9', 'mfcc10', 'mfcc11',\n",
+      "       'mfcc12', 'mfcc13', 'mfcc14', 'mfcc15', 'mfcc16', 'mfcc17', 'mfcc18',\n",
+      "       'mfcc19', 'mfcc20'],\n",
+      "      dtype='object')\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Removing the columns \n",
+    "\n",
+    "correlation(data, 0.85)\n",
+    "print(data.columns)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Although the distributions of many variables are not totally symetric, we can see that the median doesn't bring much additional information to the mean. So the suppression of highly correlated features only keeps one of them for each feature."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "H9dMiyvK4Rs5"
+   },
+   "source": [
+    "There are no missing values in our data set, so no other treatment is needed."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "18L0gB-T4Rs5"
+   },
+   "source": [
+    "## Preparing the target column"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "metadata": {
+    "id": "ZVxEubnd4Rs7"
+   },
+   "outputs": [],
+   "source": [
+    "# Encode the label classes using LabelEncoder\n",
+    "encoder = preprocessing.LabelEncoder()\n",
+    "target = encoder.fit_transform(target)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "sat9wWMa4Rs7"
+   },
+   "source": [
+    "## Separation between train and test sets"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "As our dataset is not very large, we've decided to use cross-validation to chose the hyperparameters of our models and a test set to check if there is overfitting or not."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "metadata": {
+    "id": "Q_2TOubu4Rs8"
+   },
+   "outputs": [],
+   "source": [
+    "# Split for the train and test datasets\n",
+    "X_train, X_test, y_train, y_test = train_test_split (data, target,\n",
+    "                                                    test_size = 0.2 ,\n",
+    "                                                    random_state = 42 ,\n",
+    "                                                    stratify = target)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "metadata": {
+    "id": "8a9VuOrt4Rs9"
+   },
+   "outputs": [],
+   "source": [
+    "# Scale the X data using StandardScaler\n",
+    "scaler = StandardScaler()\n",
+    "X_train = scaler.fit_transform(X_train)\n",
+    "X_test = scaler.transform(X_test)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Trying the models with the new augmented dataset"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "VRViz8S84Rs-"
+   },
+   "source": [
+    "## Logistic regression"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {
+    "id": "XiQJOxIT4Rs_"
+   },
+   "outputs": [],
+   "source": [
+    "from sklearn.linear_model import LogisticRegression\n",
+    "from sklearn import model_selection\n",
+    "\n",
+    "# Creation of the clasifier lr  (LogisticRegression)\n",
+    "lr = LogisticRegression(max_iter = 1000, multi_class='auto')\n",
+    "\n",
+    "# Parameters on which to train the lr model\n",
+    "parametres_lr = {'C' : [10**i for i in range(-2,5,1)],\n",
+    "                 'solver' : ['newton-cg', 'lbfgs', 'liblinear']}\n",
+    "\n",
+    "# Creation of the grid to train the lr model\n",
+    "grid_lr = model_selection.GridSearchCV(lr, param_grid=parametres_lr,cv=10)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "metadata": {
+    "id": "lVplJUW_4RtA"
+   },
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n",
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\linear_model\\logistic.py:947: ConvergenceWarning: lbfgs failed to converge. Increase the number of iterations.\n",
+      "  \"of iterations.\", ConvergenceWarning)\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Training of the grid_lr on X_train and y_train\n",
+    "grille = grid_lr.fit(X_train,y_train)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 390
+    },
+    "id": "09hBvfrq4RtC",
+    "outputId": "6d70e4ef-17c7-4c53-891e-66b3b5fed3e3"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.025 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "from time import time\n",
+    "t0 = time()\n",
+    "\n",
+    "# Prediction using lr on X_test\n",
+    "y_pred_lr = grid_lr.predict(X_test)\n",
+    "\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0  \n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>19</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>10</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>14</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>16</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>17</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>16</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>16</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>7</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>5</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues               13          0        1      1       0     1      1    0   \n",
+       "classical            0         19        0      0       0     1      0    0   \n",
+       "country              2          0       13      0       0     2      0    0   \n",
+       "disco                0          1        0     10       4     0      0    2   \n",
+       "hiphop               0          0        0      0      14     1      1    1   \n",
+       "jazz                 2          1        0      1       0    16      0    0   \n",
+       "metal                1          0        0      0       2     0     17    0   \n",
+       "pop                  0          0        0      2       0     0      0   16   \n",
+       "reggae               0          0        2      0       1     0      0    1   \n",
+       "rock                 1          0        7      4       0     0      0    0   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 2     1  \n",
+       "classical             0     0  \n",
+       "country               1     2  \n",
+       "disco                 1     2  \n",
+       "hiphop                3     0  \n",
+       "jazz                  0     0  \n",
+       "metal                 0     0  \n",
+       "pop                   2     0  \n",
+       "reggae               16     0  \n",
+       "rock                  3     5  "
+      ]
+     },
+     "execution_count": 15,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_lr), rownames = ['Real class'], \n",
+    "            colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "nvDf4NzK4RtD",
+    "outputId": "3b3c6107-701e-4c63-b7be-592face1a8b2"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.68      0.65      0.67        20\n",
+      "   classical       0.90      0.95      0.93        20\n",
+      "     country       0.57      0.65      0.60        20\n",
+      "       disco       0.56      0.50      0.53        20\n",
+      "      hiphop       0.67      0.70      0.68        20\n",
+      "        jazz       0.76      0.80      0.78        20\n",
+      "       metal       0.89      0.85      0.87        20\n",
+      "         pop       0.80      0.80      0.80        20\n",
+      "      reggae       0.57      0.80      0.67        20\n",
+      "        rock       0.50      0.25      0.33        20\n",
+      "\n",
+      "    accuracy                           0.69       200\n",
+      "   macro avg       0.69      0.70      0.69       200\n",
+      "weighted avg       0.69      0.69      0.69       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_lr))) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "amLfYioz4RtF"
+   },
+   "source": [
+    "As there is a uniform distribution across the ten different classes, we'll base our evaluation of the models mostly on\n",
+    "the accuracy, and on the f1-score."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "CyqNEAOU4RtH",
+    "outputId": "5b7a9a35-3319-4172-f3c6-99c52c127a6e"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'C': 1, 'solver': 'newton-cg'}"
+      ]
+     },
+     "execution_count": 17,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "grid_lr.best_params_"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "Ovyffrnp4RtI"
+   },
+   "source": [
+    "## Decision Tree"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 390
+    },
+    "id": "cP4PtNau4RtI",
+    "outputId": "03335ce3-45e4-433b-807d-550e45dcdd07"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.056 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "from sklearn.tree import DecisionTreeClassifier\n",
+    "# Creation of the clasifier dt (DecisionTreeClassifier)\n",
+    "dt = DecisionTreeClassifier()\n",
+    "# Fit of dt on (X_train,y_train)\n",
+    "dt.fit(X_train, y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.001 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Prediction using dt on X_test\n",
+    "t0 = time()\n",
+    "y_pred_dt = dt.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>8</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>14</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>3</td>\n",
+       "      <td>3</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>5</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>5</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>12</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>5</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>11</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>12</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>13</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>12</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>8</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues                8          0        4      0       1     2      0    0   \n",
+       "classical            0         14        2      0       0     3      0    0   \n",
+       "country              3          3        3      1       0     1      0    2   \n",
+       "disco                0          0        4      5       2     2      2    1   \n",
+       "hiphop               0          0        0      4      12     0      0    2   \n",
+       "jazz                 1          2        5      0       0    11      0    0   \n",
+       "metal                0          0        0      4       2     1     12    0   \n",
+       "pop                  0          0        0      1       3     1      0   13   \n",
+       "reggae               0          1        0      2       1     0      0    1   \n",
+       "rock                 2          0        3      3       1     0      0    1   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 3     2  \n",
+       "classical             0     1  \n",
+       "country               5     2  \n",
+       "disco                 1     3  \n",
+       "hiphop                2     0  \n",
+       "jazz                  0     1  \n",
+       "metal                 0     1  \n",
+       "pop                   2     0  \n",
+       "reggae               12     3  \n",
+       "rock                  2     8  "
+      ]
+     },
+     "execution_count": 25,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_dt), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "hIti1IH84RtJ",
+    "outputId": "4e3a2687-3e37-46aa-9f48-30b6c6149611"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.57      0.40      0.47        20\n",
+      "   classical       0.70      0.70      0.70        20\n",
+      "     country       0.14      0.15      0.15        20\n",
+      "       disco       0.25      0.25      0.25        20\n",
+      "      hiphop       0.55      0.60      0.57        20\n",
+      "        jazz       0.52      0.55      0.54        20\n",
+      "       metal       0.86      0.60      0.71        20\n",
+      "         pop       0.65      0.65      0.65        20\n",
+      "      reggae       0.44      0.60      0.51        20\n",
+      "        rock       0.38      0.40      0.39        20\n",
+      "\n",
+      "    accuracy                           0.49       200\n",
+      "   macro avg       0.51      0.49      0.49       200\n",
+      "weighted avg       0.51      0.49      0.49       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_dt)))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "VUKip4oQ4RtK"
+   },
+   "source": [
+    "## SVM"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 28,
+   "metadata": {
+    "id": "lrDisNB44RtM"
+   },
+   "outputs": [],
+   "source": [
+    "from sklearn import svm\n",
+    "\n",
+    "# Creation of a SVM classifier\n",
+    "clf = svm.SVC()\n",
+    "\n",
+    "# Parameters to test\n",
+    "parametres = {'C' : [0.1,1,10], 'kernel':['rbf', 'linear','poly'],'gamma' : [0.001, 0.1, 0.5]}\n",
+    "\n",
+    "# Creation of the grid to test the SVM model\n",
+    "grid_clf = model_selection.GridSearchCV(clf, param_grid=parametres,cv=5)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "metadata": {
+    "id": "LVH4wncC4RtM"
+   },
+   "outputs": [],
+   "source": [
+    "# Training of the grid_svm on X_train and y_train\n",
+    "\n",
+    "grille_svm = grid_clf.fit(X_train,y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 30,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 390
+    },
+    "id": "jdWubMUE4RtN",
+    "outputId": "fe1221d1-7efd-4d13-a452-9c3fef860ac6"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.019 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Prediction using grid_clf on X_test\n",
+    "t0 = time()\n",
+    "y_pred_svm = grid_clf.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 31,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>16</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>20</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>15</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>8</td>\n",
+       "      <td>5</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>17</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>16</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>12</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>5</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>11</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>11</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues               16          0        2      0       0     0      0    0   \n",
+       "classical            0         20        0      0       0     0      0    0   \n",
+       "country              1          0       15      0       0     2      0    1   \n",
+       "disco                0          1        1      8       5     0      0    2   \n",
+       "hiphop               0          0        0      1      17     0      0    1   \n",
+       "jazz                 1          1        1      0       0    16      0    0   \n",
+       "metal                3          0        0      1       2     0     13    0   \n",
+       "pop                  0          0        0      1       4     0      0   12   \n",
+       "reggae               0          0        3      0       5     0      0    1   \n",
+       "rock                 2          1        1      1       0     1      0    1   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 1     1  \n",
+       "classical             0     0  \n",
+       "country               0     1  \n",
+       "disco                 0     3  \n",
+       "hiphop                1     0  \n",
+       "jazz                  1     0  \n",
+       "metal                 1     0  \n",
+       "pop                   3     0  \n",
+       "reggae               11     0  \n",
+       "rock                  2    11  "
+      ]
+     },
+     "execution_count": 31,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_svm), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 32,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "xmXZyoZ-4RtO",
+    "outputId": "61af1e4b-61c7-4b03-9128-af550ac20219"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.70      0.80      0.74        20\n",
+      "   classical       0.87      1.00      0.93        20\n",
+      "     country       0.65      0.75      0.70        20\n",
+      "       disco       0.67      0.40      0.50        20\n",
+      "      hiphop       0.52      0.85      0.64        20\n",
+      "        jazz       0.84      0.80      0.82        20\n",
+      "       metal       1.00      0.65      0.79        20\n",
+      "         pop       0.67      0.60      0.63        20\n",
+      "      reggae       0.55      0.55      0.55        20\n",
+      "        rock       0.69      0.55      0.61        20\n",
+      "\n",
+      "    accuracy                           0.69       200\n",
+      "   macro avg       0.71      0.69      0.69       200\n",
+      "weighted avg       0.71      0.69      0.69       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_svm)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 33,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "2Y4t9txK4RtP",
+    "outputId": "f40824f1-8007-41d5-868f-d4ecef45812c"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'C': 10, 'gamma': 0.1, 'kernel': 'rbf'}"
+      ]
+     },
+     "execution_count": 33,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "grid_clf.best_params_"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "5jWI_cfl4RtQ"
+   },
+   "source": [
+    "## KNN"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 34,
+   "metadata": {
+    "id": "iHJDFrX-4RtQ"
+   },
+   "outputs": [],
+   "source": [
+    "from sklearn import neighbors\n",
+    "\n",
+    "# Creation of a KNN classifier\n",
+    "knn = neighbors.KNeighborsClassifier()\n",
+    "\n",
+    "# Parameters to test\n",
+    "parametres_knn = {'n_neighbors' : [1,2,5,10,20,50,100], 'metric':['minkowski', 'manhattan']}\n",
+    "\n",
+    "# Creation of the grid to test the KNN model\n",
+    "grid_knn = model_selection.GridSearchCV(knn, param_grid=parametres_knn,cv=10)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 35,
+   "metadata": {
+    "id": "p5v_DhrP4RtR"
+   },
+   "outputs": [],
+   "source": [
+    "# Training of the grid_knn on X_train and y_train\n",
+    "grille_knn = grid_knn.fit(X_train,y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 36,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 390
+    },
+    "id": "zlekPNVv4RtR",
+    "outputId": "c119a505-e303-41ed-c51c-d87a88aa843e"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.074 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Prediction using grid_knn on X_test\n",
+    "t0 = time()\n",
+    "y_pred_knn = grid_knn.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 37,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>15</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>20</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>16</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>10</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>12</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>12</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>5</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>15</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>9</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>9</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues               15          0        2      0       0     0      0    0   \n",
+       "classical            0         20        0      0       0     0      0    0   \n",
+       "country              0          1       16      0       0     1      0    1   \n",
+       "disco                0          1        1     10       4     0      0    2   \n",
+       "hiphop               2          0        1      1      12     0      0    3   \n",
+       "jazz                 1          2        3      1       0    12      0    0   \n",
+       "metal                5          0        0      0       1     0     13    0   \n",
+       "pop                  0          0        2      1       2     0      0   15   \n",
+       "reggae               0          1        1      2       3     0      0    2   \n",
+       "rock                 1          0        4      4       0     0      0    0   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 3     0  \n",
+       "classical             0     0  \n",
+       "country               0     1  \n",
+       "disco                 1     1  \n",
+       "hiphop                0     1  \n",
+       "jazz                  1     0  \n",
+       "metal                 0     1  \n",
+       "pop                   0     0  \n",
+       "reggae                9     2  \n",
+       "rock                  2     9  "
+      ]
+     },
+     "execution_count": 37,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_knn), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 38,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "ypFuhm7p4RtS",
+    "outputId": "3bc5f21f-5a7f-4ee1-e345-3a7b5b90ed26"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.62      0.75      0.68        20\n",
+      "   classical       0.80      1.00      0.89        20\n",
+      "     country       0.53      0.80      0.64        20\n",
+      "       disco       0.53      0.50      0.51        20\n",
+      "      hiphop       0.55      0.60      0.57        20\n",
+      "        jazz       0.92      0.60      0.73        20\n",
+      "       metal       1.00      0.65      0.79        20\n",
+      "         pop       0.65      0.75      0.70        20\n",
+      "      reggae       0.56      0.45      0.50        20\n",
+      "        rock       0.60      0.45      0.51        20\n",
+      "\n",
+      "    accuracy                           0.66       200\n",
+      "   macro avg       0.68      0.66      0.65       200\n",
+      "weighted avg       0.68      0.66      0.65       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_knn)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 39,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "mdROxZXq4RtT",
+    "outputId": "00a77842-9d72-4053-e793-a436ecf2cff1"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'metric': 'manhattan', 'n_neighbors': 5}"
+      ]
+     },
+     "execution_count": 39,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "grid_knn.best_params_"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "Pti9FnBk4RtT"
+   },
+   "source": [
+    "## Random Forest"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 42,
+   "metadata": {
+    "id": "OW3Ghder4RtU"
+   },
+   "outputs": [],
+   "source": [
+    "from sklearn import ensemble\n",
+    "\n",
+    "# Creation of a RF classifier\n",
+    "RF = ensemble.RandomForestClassifier(n_jobs = -1, random_state = 321)\n",
+    "\n",
+    "# Parameters to test\n",
+    "parametres_RF = {'n_estimators' : [10,20,100,200,500], 'criterion':['gini', 'entropy']}\n",
+    "\n",
+    "# Creation of the grid to test the KNN model \n",
+    "grid_RF = model_selection.GridSearchCV(RF, param_grid=parametres_RF,cv=5)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 43,
+   "metadata": {
+    "id": "hndSxA2p4RtV"
+   },
+   "outputs": [],
+   "source": [
+    "# Training of the grid_RF on X_train and y_train\n",
+    "grille_RF = grid_RF.fit(X_train,y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 44,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 390
+    },
+    "id": "jJlyXM5x4RtV",
+    "outputId": "2c467e99-9b32-4de2-9867-46cae8bc145e"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.306 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Prediction using grid_RF on X_test\n",
+    "t0 = time()\n",
+    "y_pred_RF = grid_RF.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 45,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>14</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>20</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>14</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>8</td>\n",
+       "      <td>5</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>18</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>16</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>18</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>12</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>9</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues               14          0        1      1       0     1      0    0   \n",
+       "classical            0         20        0      0       0     0      0    0   \n",
+       "country              1          0       14      0       0     4      0    0   \n",
+       "disco                0          0        1      8       5     1      2    2   \n",
+       "hiphop               1          0        0      1      13     0      2    2   \n",
+       "jazz                 0          1        0      0       0    18      0    0   \n",
+       "metal                2          0        0      1       1     0     16    0   \n",
+       "pop                  0          0        0      1       0     0      0   18   \n",
+       "reggae               0          0        2      0       4     1      0    1   \n",
+       "rock                 3          0        3      1       1     1      0    1   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 3     0  \n",
+       "classical             0     0  \n",
+       "country               0     1  \n",
+       "disco                 1     0  \n",
+       "hiphop                1     0  \n",
+       "jazz                  0     1  \n",
+       "metal                 0     0  \n",
+       "pop                   1     0  \n",
+       "reggae               12     0  \n",
+       "rock                  1     9  "
+      ]
+     },
+     "execution_count": 45,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_RF), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 47,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "fF3WENG_4RtW",
+    "outputId": "6b946918-5970-45c4-94fe-8569e97c3135"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.67      0.70      0.68        20\n",
+      "   classical       0.95      1.00      0.98        20\n",
+      "     country       0.67      0.70      0.68        20\n",
+      "       disco       0.62      0.40      0.48        20\n",
+      "      hiphop       0.54      0.65      0.59        20\n",
+      "        jazz       0.69      0.90      0.78        20\n",
+      "       metal       0.80      0.80      0.80        20\n",
+      "         pop       0.75      0.90      0.82        20\n",
+      "      reggae       0.63      0.60      0.62        20\n",
+      "        rock       0.82      0.45      0.58        20\n",
+      "\n",
+      "    accuracy                           0.71       200\n",
+      "   macro avg       0.71      0.71      0.70       200\n",
+      "weighted avg       0.71      0.71      0.70       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_RF))) "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 48,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "aO_EjmDe4RtX",
+    "outputId": "eedc11f5-09b0-4eda-ee5f-77c77caf67fc"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'criterion': 'gini', 'n_estimators': 500}"
+      ]
+     },
+     "execution_count": 48,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "grid_RF.best_params_"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "mbqVzkbk4RtY"
+   },
+   "source": [
+    "## Naive Bayes"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 49,
+   "metadata": {
+    "id": "9dpk72ax4RtY",
+    "outputId": "d425a6e3-f350-4887-d969-db5622b188c2"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.004 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "from sklearn.naive_bayes import GaussianNB\n",
+    "# Creation of the clasifier gnb (GaussianNaivesBayes)\n",
+    "gnb = GaussianNB()\n",
+    "# Fit of gnb on (X_train,y_train)\n",
+    "gnb.fit(X_train, y_train)\n",
+    "# Prediction using gnb on X_test\n",
+    "t0 = time()\n",
+    "y_pred_gnb = gnb.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 50,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>5</td>\n",
+       "      <td>5</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>18</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>9</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>4</td>\n",
+       "      <td>1</td>\n",
+       "      <td>4</td>\n",
+       "      <td>6</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>7</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>12</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>17</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>18</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>10</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>5</td>\n",
+       "      <td>2</td>\n",
+       "      <td>4</td>\n",
+       "      <td>6</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues                4          0        1      1       0     5      5    0   \n",
+       "classical            0         18        0      0       0     2      0    0   \n",
+       "country              1          0        9      0       1     4      0    2   \n",
+       "disco                0          0        1      1       4     1      4    6   \n",
+       "hiphop               1          0        0      2       4     0      4    7   \n",
+       "jazz                 1          2        0      0       0    12      0    3   \n",
+       "metal                0          0        0      1       0     0     17    0   \n",
+       "pop                  0          0        0      0       1     0      0   18   \n",
+       "reggae               0          0        3      0       1     1      1    2   \n",
+       "rock                 0          0        2      0       0     1      5    2   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 3     1  \n",
+       "classical             0     0  \n",
+       "country               0     3  \n",
+       "disco                 1     2  \n",
+       "hiphop                2     0  \n",
+       "jazz                  2     0  \n",
+       "metal                 0     2  \n",
+       "pop                   1     0  \n",
+       "reggae               10     2  \n",
+       "rock                  4     6  "
+      ]
+     },
+     "execution_count": 50,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_gnb), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 51,
+   "metadata": {
+    "id": "NYu55-FA4RtZ",
+    "outputId": "936680aa-1681-41d2-ecd2-573fd79a2f3e"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.57      0.20      0.30        20\n",
+      "   classical       0.90      0.90      0.90        20\n",
+      "     country       0.56      0.45      0.50        20\n",
+      "       disco       0.20      0.05      0.08        20\n",
+      "      hiphop       0.36      0.20      0.26        20\n",
+      "        jazz       0.46      0.60      0.52        20\n",
+      "       metal       0.47      0.85      0.61        20\n",
+      "         pop       0.45      0.90      0.60        20\n",
+      "      reggae       0.43      0.50      0.47        20\n",
+      "        rock       0.38      0.30      0.33        20\n",
+      "\n",
+      "    accuracy                           0.49       200\n",
+      "   macro avg       0.48      0.49      0.46       200\n",
+      "weighted avg       0.48      0.49      0.46       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_gnb))) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "br07vPv94Rta"
+   },
+   "source": [
+    "## Stochastic Gradient Descent"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 52,
+   "metadata": {
+    "id": "ztKaGEyt4Rta",
+    "outputId": "debc9d6f-7668-47d5-b20d-112565eefcd2"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.003 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "from sklearn.linear_model import SGDClassifier\n",
+    "# Creation of the clasifier sgdc (StohasticGradientDescentClassifier)\n",
+    "sgdc = SGDClassifier()\n",
+    "# Fit of sgdc on (X_train,y_train)\n",
+    "sgdc.fit(X_train, y_train)\n",
+    "# Prediction using sgdc on X_val\n",
+    "t0 = time()\n",
+    "y_pred_sgdc = sgdc.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 53,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>18</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>14</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>7</td>\n",
+       "      <td>5</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>12</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>6</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>9</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>17</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>14</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>14</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>7</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>4</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues               13          0        4      0       0     1      1    0   \n",
+       "classical            0         18        2      0       0     0      0    0   \n",
+       "country              2          0       14      0       0     2      0    0   \n",
+       "disco                0          1        0      7       5     1      2    2   \n",
+       "hiphop               0          0        1      0      12     2      2    1   \n",
+       "jazz                 2          1        6      0       0     9      0    0   \n",
+       "metal                0          0        0      0       3     0     17    0   \n",
+       "pop                  0          0        1      3       1     0      0   14   \n",
+       "reggae               0          0        2      0       1     0      0    1   \n",
+       "rock                 4          0        7      0       1     1      1    0   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 1     0  \n",
+       "classical             0     0  \n",
+       "country               0     2  \n",
+       "disco                 1     1  \n",
+       "hiphop                2     0  \n",
+       "jazz                  1     1  \n",
+       "metal                 0     0  \n",
+       "pop                   1     0  \n",
+       "reggae               14     2  \n",
+       "rock                  2     4  "
+      ]
+     },
+     "execution_count": 53,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_sgdc), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 54,
+   "metadata": {
+    "id": "kppP_lkw4Rtb",
+    "outputId": "0dca165e-b9d4-429f-84c6-72a13876af11"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.62      0.65      0.63        20\n",
+      "   classical       0.90      0.90      0.90        20\n",
+      "     country       0.38      0.70      0.49        20\n",
+      "       disco       0.70      0.35      0.47        20\n",
+      "      hiphop       0.52      0.60      0.56        20\n",
+      "        jazz       0.56      0.45      0.50        20\n",
+      "       metal       0.74      0.85      0.79        20\n",
+      "         pop       0.78      0.70      0.74        20\n",
+      "      reggae       0.64      0.70      0.67        20\n",
+      "        rock       0.40      0.20      0.27        20\n",
+      "\n",
+      "    accuracy                           0.61       200\n",
+      "   macro avg       0.62      0.61      0.60       200\n",
+      "weighted avg       0.62      0.61      0.60       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_sgdc))) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "l4BzmRoF4Rtc"
+   },
+   "source": [
+    "## Artificial Neural Network"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 55,
+   "metadata": {
+    "id": "Qf6CN4kt4Rtd",
+    "outputId": "a5f2e069-d690-49cf-cc09-311a4c5528e6"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.002 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "from sklearn.neural_network import MLPClassifier\n",
+    "# Creation of the clasifier ann  (MLPClassifier)\n",
+    "ann = MLPClassifier(max_iter = 1000)\n",
+    "# Fit of ann on (X_train,y_train)\n",
+    "ann.fit(X_train, y_train)\n",
+    "# Prediction using ann on X_test\n",
+    "t0 = time()\n",
+    "y_pred_ann = ann.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 56,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>11</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>19</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>15</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>9</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>16</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>15</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>14</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>12</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>13</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>8</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues               11          0        2      0       0     1      1    0   \n",
+       "classical            0         19        0      0       0     1      0    0   \n",
+       "country              2          0       15      1       0     0      0    0   \n",
+       "disco                0          1        0      9       3     0      1    1   \n",
+       "hiphop               0          0        1      0      16     0      0    1   \n",
+       "jazz                 1          1        2      0       0    15      0    0   \n",
+       "metal                4          0        0      0       1     1     14    0   \n",
+       "pop                  0          0        1      3       1     0      0   12   \n",
+       "reggae               0          0        2      1       3     0      0    0   \n",
+       "rock                 1          0        3      1       2     2      0    1   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 2     3  \n",
+       "classical             0     0  \n",
+       "country               2     0  \n",
+       "disco                 2     3  \n",
+       "hiphop                2     0  \n",
+       "jazz                  1     0  \n",
+       "metal                 0     0  \n",
+       "pop                   3     0  \n",
+       "reggae               13     1  \n",
+       "rock                  2     8  "
+      ]
+     },
+     "execution_count": 56,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_ann), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 57,
+   "metadata": {
+    "id": "afIAWc-f4Rte",
+    "outputId": "2dd71097-92c8-420f-ffbf-c06e1c6a11e9"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.58      0.55      0.56        20\n",
+      "   classical       0.90      0.95      0.93        20\n",
+      "     country       0.58      0.75      0.65        20\n",
+      "       disco       0.60      0.45      0.51        20\n",
+      "      hiphop       0.62      0.80      0.70        20\n",
+      "        jazz       0.75      0.75      0.75        20\n",
+      "       metal       0.88      0.70      0.78        20\n",
+      "         pop       0.80      0.60      0.69        20\n",
+      "      reggae       0.48      0.65      0.55        20\n",
+      "        rock       0.53      0.40      0.46        20\n",
+      "\n",
+      "    accuracy                           0.66       200\n",
+      "   macro avg       0.67      0.66      0.66       200\n",
+      "weighted avg       0.67      0.66      0.66       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_ann))) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "VSGs310T4Rtf"
+   },
+   "source": [
+    "## Algorithme de boosting AdaBoost avec Arbres de décision"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 58,
+   "metadata": {
+    "id": "lkEZi7pK4Rtg",
+    "outputId": "de6cbe19-9682-4a54-b9e9-74b221818b66"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "DecisionTreeClassifier(class_weight=None, criterion='gini', max_depth=5,\n",
+       "                       max_features=None, max_leaf_nodes=None,\n",
+       "                       min_impurity_decrease=0.0, min_impurity_split=None,\n",
+       "                       min_samples_leaf=1, min_samples_split=2,\n",
+       "                       min_weight_fraction_leaf=0.0, presort=False,\n",
+       "                       random_state=None, splitter='best')"
+      ]
+     },
+     "execution_count": 58,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "from sklearn.tree import DecisionTreeClassifier\n",
+    "\n",
+    "# Creation of the decision tree classifier dtc  \n",
+    "dtc = DecisionTreeClassifier(max_depth = 5)\n",
+    "dtc.fit(X_train, y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 59,
+   "metadata": {
+    "id": "glK-Kjcj4Rth",
+    "outputId": "57afbfcf-8ef0-49c5-d77f-70f52699db3c"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0.65"
+      ]
+     },
+     "execution_count": 59,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "from sklearn.ensemble import AdaBoostClassifier\n",
+    "\n",
+    "# Creation of the clasifier ac  (AdaBoost Classifier)\n",
+    "ac = AdaBoostClassifier(base_estimator = dtc, n_estimators = 400)\n",
+    "# Training of the model\n",
+    "ac.fit(X_train,y_train)\n",
+    "ac.score(X_test,y_test)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 61,
+   "metadata": {
+    "id": "oFslBYQz4Rti",
+    "outputId": "27c9fa2a-cef0-435f-ce53-9b18bb1873bb"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.277 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Prediction using ac on X_val\n",
+    "t0 = time()\n",
+    "y_pred_ac = ac.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 62,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>10</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>12</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>8</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>19</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>9</td>\n",
+       "      <td>4</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>15</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>4</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>12</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>14</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>13</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues               10          0        2      1       0     2      0    0   \n",
+       "classical            0         12        0      0       0     8      0    0   \n",
+       "country              0          0       19      0       0     0      0    0   \n",
+       "disco                0          0        2      9       4     1      0    1   \n",
+       "hiphop               0          0        0      3      13     0      1    1   \n",
+       "jazz                 0          1        3      0       0    15      0    0   \n",
+       "metal                1          0        0      1       0     0     13    0   \n",
+       "pop                  0          0        0      2       2     0      0   12   \n",
+       "reggae               0          0        3      1       1     0      0    1   \n",
+       "rock                 1          0        4      0       0     0      0    0   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 2     3  \n",
+       "classical             0     0  \n",
+       "country               0     1  \n",
+       "disco                 1     2  \n",
+       "hiphop                1     1  \n",
+       "jazz                  0     1  \n",
+       "metal                 1     4  \n",
+       "pop                   4     0  \n",
+       "reggae               14     0  \n",
+       "rock                  2    13  "
+      ]
+     },
+     "execution_count": 62,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_ac), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 63,
+   "metadata": {
+    "id": "7aBIMi1V4Rtk",
+    "outputId": "10a52de5-3ca4-41c1-e457-b773ab9c445f"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.83      0.50      0.62        20\n",
+      "   classical       0.92      0.60      0.73        20\n",
+      "     country       0.58      0.95      0.72        20\n",
+      "       disco       0.53      0.45      0.49        20\n",
+      "      hiphop       0.65      0.65      0.65        20\n",
+      "        jazz       0.58      0.75      0.65        20\n",
+      "       metal       0.93      0.65      0.76        20\n",
+      "         pop       0.80      0.60      0.69        20\n",
+      "      reggae       0.56      0.70      0.62        20\n",
+      "        rock       0.52      0.65      0.58        20\n",
+      "\n",
+      "    accuracy                           0.65       200\n",
+      "   macro avg       0.69      0.65      0.65       200\n",
+      "weighted avg       0.69      0.65      0.65       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_ac)))  "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "DMpAfV-N4Rtl"
+   },
+   "source": [
+    "## Gradient Boosting Classification"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 64,
+   "metadata": {
+    "id": "PeQkuPod4Rtm"
+   },
+   "outputs": [],
+   "source": [
+    "from sklearn.ensemble import GradientBoostingClassifier\n",
+    "\n",
+    "# Here we choose arbitrary hyperparameters as a GridSearchCV optimization takes an extremely high amount of time \n",
+    "# on our computers\n",
+    "\n",
+    "gbc = GradientBoostingClassifier(n_estimators=100, max_depth = 5, learning_rate = 0.1)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 65,
+   "metadata": {
+    "id": "dqbm6yGt4Rtm",
+    "outputId": "1f25f5ea-b719-4fc7-a689-f4b7a46ebf31"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Réalisé en 0.011 secondes\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Training of the model\n",
+    "gbc.fit(X_train,y_train)\n",
+    "\n",
+    "# Prediction on the validation set\n",
+    "t0 = time()\n",
+    "y_pred_gbc = gbc.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 66,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>11</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>19</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>15</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>8</td>\n",
+       "      <td>4</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>5</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>14</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>17</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>16</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>15</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>4</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>11</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>5</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>7</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues               11          0        1      2       0     2      1    0   \n",
+       "classical            0         19        0      0       0     1      0    0   \n",
+       "country              1          0       15      0       0     1      0    0   \n",
+       "disco                0          0        0      8       4     1      1    1   \n",
+       "hiphop               0          0        0      2      14     1      1    2   \n",
+       "jazz                 0          1        2      0       0    17      0    0   \n",
+       "metal                1          0        0      1       1     1     16    0   \n",
+       "pop                  0          0        0      2       3     0      0   15   \n",
+       "reggae               0          0        2      0       4     1      0    1   \n",
+       "rock                 2          1        5      1       1     1      0    0   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 3     0  \n",
+       "classical             0     0  \n",
+       "country               1     2  \n",
+       "disco                 0     5  \n",
+       "hiphop                0     0  \n",
+       "jazz                  0     0  \n",
+       "metal                 0     0  \n",
+       "pop                   0     0  \n",
+       "reggae               11     1  \n",
+       "rock                  2     7  "
+      ]
+     },
+     "execution_count": 66,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_gbc), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 67,
+   "metadata": {
+    "id": "Ankch_ty4Rtr",
+    "outputId": "c935c71e-4ec1-44e6-936f-5c14b54057f5"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.73      0.55      0.63        20\n",
+      "   classical       0.90      0.95      0.93        20\n",
+      "     country       0.60      0.75      0.67        20\n",
+      "       disco       0.50      0.40      0.44        20\n",
+      "      hiphop       0.52      0.70      0.60        20\n",
+      "        jazz       0.65      0.85      0.74        20\n",
+      "       metal       0.84      0.80      0.82        20\n",
+      "         pop       0.79      0.75      0.77        20\n",
+      "      reggae       0.65      0.55      0.59        20\n",
+      "        rock       0.47      0.35      0.40        20\n",
+      "\n",
+      "    accuracy                           0.67       200\n",
+      "   macro avg       0.67      0.66      0.66       200\n",
+      "weighted avg       0.67      0.67      0.66       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_gbc)))   "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "VwplGj5YB5LW"
+   },
+   "source": [
+    "# Gradient Boosting Classifier avec GridSearchCV"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 68,
+   "metadata": {
+    "id": "0ek6JjsjCH7k"
+   },
+   "outputs": [],
+   "source": [
+    "from sklearn.ensemble import GradientBoostingClassifier"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 69,
+   "metadata": {
+    "id": "dwDAyPbPCf2U"
+   },
+   "outputs": [],
+   "source": [
+    "gbc = GradientBoostingClassifier()\n",
+    "parameters = {\n",
+    "    \"n_estimators\":[5,50,250,500],\n",
+    "    \"max_depth\":[1,3,5,7,9],\n",
+    "    \"learning_rate\":[0.01,0.1,1,10,100]\n",
+    "}"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 40,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "2S7PFlJ8CgyW",
+    "outputId": "c572ce71-a745-4990-812f-ef7151db1925"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "GridSearchCV(cv=5, error_score=nan,\n",
+       "             estimator=GradientBoostingClassifier(ccp_alpha=0.0,\n",
+       "                                                  criterion='friedman_mse',\n",
+       "                                                  init=None, learning_rate=0.1,\n",
+       "                                                  loss='deviance', max_depth=3,\n",
+       "                                                  max_features=None,\n",
+       "                                                  max_leaf_nodes=None,\n",
+       "                                                  min_impurity_decrease=0.0,\n",
+       "                                                  min_impurity_split=None,\n",
+       "                                                  min_samples_leaf=1,\n",
+       "                                                  min_samples_split=2,\n",
+       "                                                  min_weight_fraction_leaf=0.0,\n",
+       "                                                  n_estimators=100,\n",
+       "                                                  n_iter_no_change=None,\n",
+       "                                                  presort='deprecated',\n",
+       "                                                  random_state=None,\n",
+       "                                                  subsample=1.0, tol=0.0001,\n",
+       "                                                  validation_fraction=0.1,\n",
+       "                                                  verbose=0, warm_start=False),\n",
+       "             iid='deprecated', n_jobs=None,\n",
+       "             param_grid={'learning_rate': [0.01, 0.1, 1, 10, 100],\n",
+       "                         'max_depth': [1, 3, 5, 7, 9],\n",
+       "                         'n_estimators': [5, 50, 250, 500]},\n",
+       "             pre_dispatch='2*n_jobs', refit=True, return_train_score=False,\n",
+       "             scoring=None, verbose=0)"
+      ]
+     },
+     "execution_count": 40,
+     "metadata": {
+      "tags": []
+     },
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "from sklearn.model_selection import GridSearchCV\n",
+    "\n",
+    "cv_gbc = GridSearchCV(gbc,parameters,cv=5)\n",
+    "cv_gbc.fit(X_train, y_train) "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 41,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "voSTZppZDmYH",
+    "outputId": "9a52c660-401c-42ca-84c2-d8ac2cd9437d"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'learning_rate': 0.1, 'max_depth': 3, 'n_estimators': 250}"
+      ]
+     },
+     "execution_count": 41,
+     "metadata": {
+      "tags": []
+     },
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "cv_gbc.best_params_"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 43,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 390
+    },
+    "id": "ehi_JABXhsPl",
+    "outputId": "8c030a37-e2ee-4482-ead9-f4048497b34d"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>0</th>\n",
+       "      <th>1</th>\n",
+       "      <th>2</th>\n",
+       "      <th>3</th>\n",
+       "      <th>4</th>\n",
+       "      <th>5</th>\n",
+       "      <th>6</th>\n",
+       "      <th>7</th>\n",
+       "      <th>8</th>\n",
+       "      <th>9</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>12</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>0</td>\n",
+       "      <td>17</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>12</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>12</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>10</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>5</th>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>14</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>6</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>17</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>7</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>8</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>13</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>9</th>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>5</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>9</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class   0   1   2   3   4   5   6   7   8  9\n",
+       "Real class                                            \n",
+       "0                12   0   0   3   0   1   2   0   1  1\n",
+       "1                 0  17   1   0   0   1   0   0   0  1\n",
+       "2                 0   1  12   1   0   2   0   0   1  3\n",
+       "3                 0   0   2  12   2   0   0   0   1  3\n",
+       "4                 0   0   1   2  10   0   2   2   2  1\n",
+       "5                 0   2   2   0   0  14   0   0   1  1\n",
+       "6                 1   0   0   0   1   1  17   0   0  0\n",
+       "7                 0   0   2   2   0   1   0  13   0  2\n",
+       "8                 0   1   0   2   3   1   0   0  13  0\n",
+       "9                 1   1   1   5   2   0   0   0   1  9"
+      ]
+     },
+     "execution_count": 43,
+     "metadata": {
+      "tags": []
+     },
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "y_pred_cv_gbc = cv_gbc.predict(X_test)\n",
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_cv_gbc), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 44,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "z4Fo2bDaiGRU",
+    "outputId": "1ca49d13-4d9c-456f-d827-31c2ffa6d045"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "           0       0.86      0.60      0.71        20\n",
+      "           1       0.77      0.85      0.81        20\n",
+      "           2       0.57      0.60      0.59        20\n",
+      "           3       0.44      0.60      0.51        20\n",
+      "           4       0.56      0.50      0.53        20\n",
+      "           5       0.67      0.70      0.68        20\n",
+      "           6       0.81      0.85      0.83        20\n",
+      "           7       0.87      0.65      0.74        20\n",
+      "           8       0.65      0.65      0.65        20\n",
+      "           9       0.43      0.45      0.44        20\n",
+      "\n",
+      "    accuracy                           0.65       200\n",
+      "   macro avg       0.66      0.65      0.65       200\n",
+      "weighted avg       0.66      0.65      0.65       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_cv_gbc)))   "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "Lq-eV1vGmXt2"
+   },
+   "source": [
+    "# Tuning of the Artificial Neural Network (MLP) with a GridSearchCV"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "taj2fpKkmYfU",
+    "outputId": "3dd0fd27-e398-44b5-b937-92ceec3fad19"
+   },
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "C:\\Users\\Arthur\\anaconda3\\lib\\site-packages\\sklearn\\model_selection\\_search.py:813: DeprecationWarning: The default of the `iid` parameter will change from True to False in version 0.22 and will be removed in 0.24. This will change numeric results when test-set sizes are unequal.\n",
+      "  DeprecationWarning)\n"
+     ]
+    },
+    {
+     "data": {
+      "text/plain": [
+       "GridSearchCV(cv=3, error_score='raise-deprecating',\n",
+       "             estimator=MLPClassifier(activation='relu', alpha=0.0001,\n",
+       "                                     batch_size='auto', beta_1=0.9,\n",
+       "                                     beta_2=0.999, early_stopping=False,\n",
+       "                                     epsilon=1e-08, hidden_layer_sizes=(100,),\n",
+       "                                     learning_rate='constant',\n",
+       "                                     learning_rate_init=0.001, max_iter=1000,\n",
+       "                                     momentum=0.9, n_iter_no_change=10,\n",
+       "                                     nesterovs_momentum=True, power_t=0.5,\n",
+       "                                     random_st...\n",
+       "                                     solver='adam', tol=0.0001,\n",
+       "                                     validation_fraction=0.1, verbose=False,\n",
+       "                                     warm_start=False),\n",
+       "             iid='warn', n_jobs=-1,\n",
+       "             param_grid={'activation': ['tanh', 'relu'],\n",
+       "                         'alpha': [0.0001, 0.05],\n",
+       "                         'hidden_layer_sizes': [(50, 50, 50), (50, 100, 50),\n",
+       "                                                (100,)],\n",
+       "                         'learning_rate': ['constant', 'adaptive'],\n",
+       "                         'solver': ['sgd', 'adam']},\n",
+       "             pre_dispatch='2*n_jobs', refit=True, return_train_score=False,\n",
+       "             scoring=None, verbose=0)"
+      ]
+     },
+     "execution_count": 25,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "from sklearn.model_selection import GridSearchCV\n",
+    "\n",
+    "from sklearn.neural_network import MLPClassifier\n",
+    "# Creation of the classifier ann  (MLPClassifier)\n",
+    "mlp = MLPClassifier(max_iter = 1000)\n",
+    "\n",
+    "parameter_space = {\n",
+    "    'hidden_layer_sizes': [(50,50,50), (50,100,50), (100,)],\n",
+    "    'activation': ['tanh', 'relu'],\n",
+    "    'solver': ['sgd', 'adam'],\n",
+    "    'alpha': [0.0001, 0.05],\n",
+    "    'learning_rate': ['constant','adaptive'],\n",
+    "}\n",
+    "\n",
+    "grid_mlp = GridSearchCV(mlp, parameter_space, n_jobs=-1, cv=3)\n",
+    "grid_mlp.fit(X_train, y_train)  \n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "GJFe1dmpp9kV",
+    "outputId": "fa5a4fb7-cda5-4dec-9172-a01d44104f27"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'activation': 'tanh',\n",
+       " 'alpha': 0.0001,\n",
+       " 'hidden_layer_sizes': (100,),\n",
+       " 'learning_rate': 'constant',\n",
+       " 'solver': 'adam'}"
+      ]
+     },
+     "execution_count": 26,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "grid_mlp.best_params_"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 390
+    },
+    "id": "mW9L2ruNmlQF",
+    "outputId": "95ef54a6-555a-45d0-953c-9e10ab348eb2"
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th>Predicted class</th>\n",
+       "      <th>blues</th>\n",
+       "      <th>classical</th>\n",
+       "      <th>country</th>\n",
+       "      <th>disco</th>\n",
+       "      <th>hiphop</th>\n",
+       "      <th>jazz</th>\n",
+       "      <th>metal</th>\n",
+       "      <th>pop</th>\n",
+       "      <th>reggae</th>\n",
+       "      <th>rock</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Real class</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>blues</th>\n",
+       "      <td>14</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>classical</th>\n",
+       "      <td>0</td>\n",
+       "      <td>20</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>country</th>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>14</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>disco</th>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>11</td>\n",
+       "      <td>3</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>hiphop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>14</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>jazz</th>\n",
+       "      <td>2</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>15</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>metal</th>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>17</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>pop</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>12</td>\n",
+       "      <td>4</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>reggae</th>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>2</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>14</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>rock</th>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>5</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>3</td>\n",
+       "      <td>9</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "Predicted class  blues  classical  country  disco  hiphop  jazz  metal  pop  \\\n",
+       "Real class                                                                    \n",
+       "blues               14          0        1      0       0     0      1    0   \n",
+       "classical            0         20        0      0       0     0      0    0   \n",
+       "country              2          0       14      0       0     0      0    1   \n",
+       "disco                0          1        1     11       3     0      0    1   \n",
+       "hiphop               0          0        0      1      14     0      1    0   \n",
+       "jazz                 2          2        0      0       0    15      0    0   \n",
+       "metal                2          0        0      0       0     1     17    0   \n",
+       "pop                  0          0        0      2       1     1      0   12   \n",
+       "reggae               0          0        1      0       2     0      0    1   \n",
+       "rock                 1          0        5      0       0     1      0    1   \n",
+       "\n",
+       "Predicted class  reggae  rock  \n",
+       "Real class                     \n",
+       "blues                 2     2  \n",
+       "classical             0     0  \n",
+       "country               2     1  \n",
+       "disco                 1     2  \n",
+       "hiphop                3     1  \n",
+       "jazz                  1     0  \n",
+       "metal                 0     0  \n",
+       "pop                   4     0  \n",
+       "reggae               14     2  \n",
+       "rock                  3     9  "
+      ]
+     },
+     "execution_count": 27,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# Prediction using ann on X_test\n",
+    "t0 = time()\n",
+    "y_pred_mlp = grid_mlp.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "pd.crosstab(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_mlp), \n",
+    "            rownames = ['Real class'], colnames=['Predicted class']) "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 28,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "Wk3h5Yd0qHGk",
+    "outputId": "d5bbf2eb-1e96-427c-d241-92b5c9880d37"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "       blues       0.67      0.70      0.68        20\n",
+      "   classical       0.87      1.00      0.93        20\n",
+      "     country       0.64      0.70      0.67        20\n",
+      "       disco       0.79      0.55      0.65        20\n",
+      "      hiphop       0.70      0.70      0.70        20\n",
+      "        jazz       0.83      0.75      0.79        20\n",
+      "       metal       0.89      0.85      0.87        20\n",
+      "         pop       0.75      0.60      0.67        20\n",
+      "      reggae       0.47      0.70      0.56        20\n",
+      "        rock       0.53      0.45      0.49        20\n",
+      "\n",
+      "    accuracy                           0.70       200\n",
+      "   macro avg       0.71      0.70      0.70       200\n",
+      "weighted avg       0.71      0.70      0.70       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(y_pred_mlp))  )  "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "We can see that this latest model is the best, so we are going to save it for further utilization. Before saving, we train it again on the whole data (X_train + X_test) to benefit from a maximum of data.\n",
+    "It's important to note that in such a classification a score of 100% would never be possible as there are \"artistical intersections\" between these styles. For instance there is country-rock music, so it's no surprise to get 5 rock songs classified as country music."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 30,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "['md.joblib']"
+      ]
+     },
+     "execution_count": 30,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# Creation of the classifier ann  (MLPClassifier)\n",
+    "ann_final = MLPClassifier(max_iter = 1000, activation = 'tanh', alpha = 0.0001, hidden_layer_sizes = (100,),\n",
+    "                   learning_rate = 'constant', solver = 'adam') \n",
+    "# Fit of ann on (X_train,y_train)\n",
+    "ann_final.fit(data, target)\n",
+    "# Sauvegarde du modèle\n",
+    "\n",
+    "from joblib import dump, load\n",
+    "\n",
+    "dump(ann_final, 'md.joblib')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Using the saved model on songs to be classified"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "This is a first trial with a recent gothik rock song. It will be interesting if it is correctly classified."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 80,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import librosa\n",
+    "\n",
+    "# 1. Get the file path to an included audio example\n",
+    "\n",
+    "songname = \"DRAB MAJESTY - The Demonstration - 09 Kissing The Ground.wav\"\n",
+    "\n",
+    "\n",
+    "# 2. Load the audio as a waveform `y`\n",
+    "#    Store the sampling rate as `sr`\n",
+    " \n",
+    "y, sr = librosa.load(songname, mono = True, duration=30)\n",
+    "tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)\n",
+    "chroma_stft = librosa.feature.chroma_stft(y=y, sr=sr)\n",
+    "rmse = librosa.feature.rms(y=y)\n",
+    "spec_cent = librosa.feature.spectral_centroid(y=y, sr=sr)\n",
+    "spec_bw = librosa.feature.spectral_bandwidth(y=y, sr=sr)\n",
+    "rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)\n",
+    "zcr = librosa.feature.zero_crossing_rate(y)\n",
+    "mfcc = librosa.feature.mfcc(y=y, sr=sr)\n",
+    "to_append = f'{tempo} {np.mean(chroma_stft)} {np.std(chroma_stft)} {np.median(chroma_stft)} \\\n",
+    "                {np.mean(rmse)} {np.std(rmse)} {np.median(rmse)} {np.mean(spec_cent)} {np.std(spec_cent)} \\\n",
+    "                {np.median(spec_cent)} {np.mean(spec_bw)} {np.std(spec_bw)} {np.median(spec_bw)} \\\n",
+    "                {np.mean(rolloff)} {np.std(rolloff)} {np.median(rolloff)} {np.mean(zcr)} {np.std(zcr)} \\\n",
+    "                {np.median(zcr)}'    \n",
+    "for e in mfcc:\n",
+    "            to_append += f' {np.mean(e)}'\n",
+    "\n",
+    "X_song = pd.DataFrame(to_append.split())            "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 49,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "list"
+      ]
+     },
+     "execution_count": 49,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "header = 'tempo chroma_stft_mean chroma_stft_std chroma_stft_median rmse_mean rmse_std rmse_median \\\n",
+    "          spectral_centroid_mean spectral_centroid_std spectral_centroid_median spectral_bandwidth_mean \\\n",
+    "          spectral_bandwidth_std spectral_bandwidth_median rolloff_mean rolloff_std rolloff_median zero_crossing_rate_mean \\\n",
+    "          zero_crossing_rate_std zero_crossing_rate_median'\n",
+    "for i in range(1, 21):\n",
+    "    header += f' mfcc{i}'\n",
+    "header = header.split()\n",
+    "type(header)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 81,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "X_song_array = np.array([to_append.split()]) "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 62,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(1, 39)"
+      ]
+     },
+     "execution_count": 62,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "X_song_array.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 82,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "X_song = pd.DataFrame(X_song_array, columns = header)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 66,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "Index(['tempo', 'chroma_stft_mean', 'chroma_stft_std', 'chroma_stft_median',\n",
+       "       'rmse_mean', 'rmse_std', 'rmse_median', 'spectral_centroid_mean',\n",
+       "       'spectral_centroid_std', 'spectral_centroid_median',\n",
+       "       'spectral_bandwidth_mean', 'spectral_bandwidth_std',\n",
+       "       'spectral_bandwidth_median', 'rolloff_mean', 'rolloff_std',\n",
+       "       'rolloff_median', 'zero_crossing_rate_mean', 'zero_crossing_rate_std',\n",
+       "       'zero_crossing_rate_median', 'mfcc1', 'mfcc2', 'mfcc3', 'mfcc4',\n",
+       "       'mfcc5', 'mfcc6', 'mfcc7', 'mfcc8', 'mfcc9', 'mfcc10', 'mfcc11',\n",
+       "       'mfcc12', 'mfcc13', 'mfcc14', 'mfcc15', 'mfcc16', 'mfcc17', 'mfcc18',\n",
+       "       'mfcc19', 'mfcc20'],\n",
+       "      dtype='object')"
+      ]
+     },
+     "execution_count": 66,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "X_song.columns"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 83,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "X_song = X_song[['tempo', 'chroma_stft_mean', 'chroma_stft_std', 'rmse_mean', 'rmse_std',\n",
+    "       'spectral_centroid_mean', 'spectral_centroid_std',\n",
+    "       'spectral_bandwidth_std', 'zero_crossing_rate_std',\n",
+    "       'zero_crossing_rate_median', 'mfcc1', 'mfcc2', 'mfcc3', 'mfcc4',\n",
+    "       'mfcc5', 'mfcc6', 'mfcc7', 'mfcc8', 'mfcc9', 'mfcc10', 'mfcc11',\n",
+    "       'mfcc12', 'mfcc13', 'mfcc14', 'mfcc15', 'mfcc16', 'mfcc17', 'mfcc18',\n",
+    "       'mfcc19', 'mfcc20']]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 84,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "array(['rock'], dtype=object)"
+      ]
+     },
+     "execution_count": 84,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "loaded_model = load('md.joblib')\n",
+    "genre_pred = loaded_model.predict(X_song)\n",
+    "pred = encoder.inverse_transform(genre_pred)\n",
+    "pred"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The song is correctly classified in the \"rock\" category."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    " "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "id": "nwbP8us88Cs3"
+   },
+   "source": [
+    "# Annex: Test of a Dense Neural Network "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import keras\n",
+    "from keras import models\n",
+    "from keras import layers\n",
+    "\n",
+    "model = models.Sequential()\n",
+    "model.add(layers.Dense(256, activation='relu', input_shape=(X_train.shape[1],)))\n",
+    "\n",
+    "model.add(layers.Dense(128, activation='relu'))\n",
+    "\n",
+    "model.add(layers.Dense(64, activation='relu'))\n",
+    "\n",
+    "model.add(layers.Dense(10, activation='softmax'))\n",
+    "\n",
+    "model.compile(optimizer='adam',\n",
+    "              loss='sparse_categorical_crossentropy',\n",
+    "              metrics=['accuracy'])\n",
+    "              \n",
+    "history = model.fit(X_train,\n",
+    "                    y_train,\n",
+    "                    epochs=20,\n",
+    "                    batch_size=128)\n",
+    "                    \n",
+    "# calculate accuracy\n",
+    "test_loss, test_acc = model.evaluate(X_test,y_test)\n",
+    "print('test_acc: ',test_acc)\n",
+    "\n",
+    "# predictions\n",
+    "t0 = time()\n",
+    "predictions = model.predict(X_test)\n",
+    "# Calcul du temps de prédiction du modèle\n",
+    "t1 = time() - t0\n",
+    "print(\"Réalisé en {} secondes\".format(round(t1,3)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 64,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "SK86YoA18xn1",
+    "outputId": "34f6f732-5486-4ae6-9f55-1b327843138f"
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "           0       0.70      0.70      0.70        20\n",
+      "           1       0.90      0.90      0.90        20\n",
+      "           2       0.70      0.70      0.70        20\n",
+      "           3       0.50      0.75      0.60        20\n",
+      "           4       0.72      0.65      0.68        20\n",
+      "           5       0.68      0.65      0.67        20\n",
+      "           6       0.77      0.85      0.81        20\n",
+      "           7       0.68      0.85      0.76        20\n",
+      "           8       0.50      0.45      0.47        20\n",
+      "           9       0.75      0.30      0.43        20\n",
+      "\n",
+      "    accuracy                           0.68       200\n",
+      "   macro avg       0.69      0.68      0.67       200\n",
+      "weighted avg       0.69      0.68      0.67       200\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "pred_classes = predictions.argmax(axis = 1)\n",
+    "print(classification_report(encoder.inverse_transform(y_test), encoder.inverse_transform(pred_classes)))  "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "This model doesn't bring any improvement to our classification."
+   ]
+  }
+ ],
+ "metadata": {
+  "colab": {
+   "collapsed_sections": [
+    "VSGs310T4Rtf",
+    "hag0Bcd54Rty",
+    "0sTvQjSu4Rt0"
+   ],
+   "name": "Modelisation - first iteration .ipynb",
+   "provenance": [],
+   "toc_visible": true
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.7.6"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 1
+}
